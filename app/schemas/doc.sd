@@ -1,0 +1,14 @@
+schema doc {
+    document doc {
+        
+        field id type string {
+            indexing: summary | attribute
+        }
+
+        field title type string {
+            indexing: index | summary
+            index: enable-bm25
+        }
+    }
+    
+}
