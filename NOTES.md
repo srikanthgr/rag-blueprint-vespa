@@ -115,3 +115,37 @@ schema document {
 - **Indexes**: Fast for text search, but slower for exact matches
 - **Summary**: Required for fields you want to return in search results
 - **Combined**: You can combine expressions like `attribute | summary` for fields that need both fast access and result display 
+
+
+## Attribute Explanations
+
+### Field Attributes:
+- **`name`**: Field identifier - unique name for the field in your schema
+- **`type`**: Data type (string, long, int, boolean, tensor, array) - defines what kind of data the field stores
+- **`indexing`**: How the field is processed and stored - controls storage behavior and search capabilities
+  - `summary`: Can be returned in search results - fields included in document summaries
+  - `attribute`: Can be used for filtering, sorting, grouping - fast random access, stored in memory
+  - `index`: Enables full-text search - creates inverted index for text search
+  - `input`: Field accepts input data - allows data to be written to this field
+  - `embed`: Generates vector embeddings - creates dense vector representations
+  - `packbits`/`pack_bits`: Compresses vector data for storage - reduces memory usage for vectors
+  - `chunk`: Splits text into fixed-length chunks - breaks large text into smaller searchable pieces
+
+### Tensor Types:
+- **`tensor<int8>(x[96])`**: 96-dimensional vector with 8-bit integers - compact vector representation
+- **`tensor<int8>(chunk{}, x[96])`**: Tensor with chunk dimension and 96-dim vectors - multiple vectors per document
+
+### HNSW (Approximate Nearest Neighbor):
+- **`distance_metric`**: Similarity measure (hamming for int8, euclidean for float) - how vector similarity is calculated
+- Enables fast vector similarity search - allows finding similar documents quickly
+
+### Document Summaries:
+- **`from_disk`**: Lazy loading from disk storage - loads data only when needed
+- **`select_elements_by`**: Function to select specific elements from arrays - custom selection logic
+
+### RAG System Design:
+This schema is designed for a RAG (Retrieval-Augmented Generation) system where:
+- Documents are chunked into smaller pieces for better retrieval
+- Each chunk gets vector embeddings for semantic search
+- Documents can be searched both by text (BM25) and semantic similarity (vector search)
+- Supports hybrid search combining multiple retrieval methods
