@@ -1,24 +1,15 @@
 from vespa.package import (
-    ApplicationPackage,
-    Field,
-    Schema,
-    Document,
-    HNSW,
     RankProfile,
-    Component,
-    Parameter,
-    FieldSet,
-    GlobalPhaseRanking,
     Function,
     FirstPhaseRanking,
 )
 
-from collect_training_data_profile import create_collect_training_data_profile
+from .collect_training_data_profile import create_collect_training_data_profile
 
 def create_collect_second_phase_profile():
     profile = RankProfile(
         name="collect-second-phase",
-        inherits=create_collect_training_data_profile(),
+        inherits="collect-training-data",  # Inherit by name, not by object
         match_features=[
             "bm25(title)",
             "bm25(chunks)",

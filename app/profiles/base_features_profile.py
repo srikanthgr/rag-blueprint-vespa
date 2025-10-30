@@ -1,14 +1,5 @@
 from vespa.package import (
-    ApplicationPackage,
-    Field,
-    Schema,
-    Document,
-    HNSW,
     RankProfile,
-    Component,
-    Parameter,
-    FieldSet,
-    GlobalPhaseRanking,
     Function,
 )
 
@@ -26,10 +17,10 @@ def create_base_features_profile():
                 expression="elementwise(bm25(chunks),chunk,float)"
             ),
             
-            # Function to unpack compressed chunk embeddings
+            # Function to get chunk embeddings (no unpacking needed for float tensors)
             Function(
                 name="chunk_emb_vecs",
-                expression="unpack_bits(attribute(chunk_embeddings))"
+                expression="attribute(chunk_embeddings)"
             ),
             
             # Function to calculate dot product between query and chunk embeddings

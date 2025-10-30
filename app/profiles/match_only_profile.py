@@ -1,15 +1,5 @@
 from vespa.package import (
-    ApplicationPackage,
-    Field,
-    Schema,
-    Document,
-    HNSW,
     RankProfile,
-    Component,
-    Parameter,
-    FieldSet,
-    GlobalPhaseRanking,
-    Function,
 )
 
 def create_match_only_profile():

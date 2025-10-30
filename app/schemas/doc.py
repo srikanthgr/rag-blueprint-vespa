@@ -1,17 +1,11 @@
 from vespa.package import (
-    ApplicationPackage,
     Field,
     Schema,
     Document,
     HNSW,
-    RankProfile,
-    Component,
-    Parameter,
     FieldSet,
-    GlobalPhaseRanking,
-    Function,
     DocumentSummary,
-    SummaryFeature,
+    Summary,
 )
 
 def create_docs_schema():
@@ -71,77 +65,77 @@ def create_docs_schema():
                 # Boolean flag indicating if document is favorited
                 Field(
                     name = "favorite",
-                    type = "boolean",
+                    type = "bool",  # Vespa uses 'bool' not 'boolean'
                     indexing = "summary | attribute",
                 ), 
-
-                # Vector embedding for document title (96-dimensional int8 tensor)
+                
+                # Vector embedding for document title (using 768 dimensions to match query)
                 Field(
                     name = "title_embedding",
-                    type = "tensor<int8>(x[96])",  # 96-dimensional vector with int8 precision
-                    indexing = "input title | embed | packbits | attribute | index",  # embed: generates embedding from title, packbits: compresses for storage
-                    ann = HNSW(  # Approximate Nearest Neighbor search using Hierarchical Navigable Small World
-                        distance_metric = "hamming",  # Uses Hamming distance for similarity (good for int8 vectors)
-                    )
+                    type = "tensor<float>(x[768])",  # 768-dimensional to match float_embedding query
+                    indexing = "input title | embed | attribute | index",
+                    ann = HNSW(distance_metric = "angular")  # angular for float tensors
                 ), 
 
-                # Array of text chunks created from the main text field
+                # Array of text chunks
                 Field(
                     name = "chunks",
-                    type="array<string>",  # Array of string chunks
-                    indexing = "input text | chunk fixed-length 1024 | summary | index",  # chunk: splits text into 1024-char chunks
-                    index = "enable-bm25",  # Enables BM25 search on each chunk
+                    type="array<string>",
+                    indexing = "input text | chunk fixed-length 1024 | summary | index",
+                    index = "enable-bm25"
                 ), 
 
-                # Vector embeddings for each chunk (tensor with chunk dimension and 96-dimensional vectors)
+                # Vector embeddings for each chunk (using 768 dimensions to match query)
                 Field(
-                    name = "chunks_embedding",  # Note: should be "chunk_embeddings" to match original schema
-                    type = "tensor<int8>(chunk{}, x[96])",  # Tensor with chunk dimension and 96-dim vectors
-                    indexing = "input text | chunk fixed-length 1024 | embed | pack_bits | attribute | index",  # Creates embeddings for each chunk
-                    ann = HNSW(  # ANN search for chunk embeddings
-                        distance_metric = "hamming",
-                    ),                     
+                    name = "chunk_embeddings",
+                    type = "tensor<float>(chunk{}, x[768])",  # 768-dimensional to match float_embedding query
+                    indexing = "input text | chunk fixed-length 1024 | embed | attribute | index",
+                    ann = HNSW(distance_metric = "angular")
                 ), 
-            ], 
+            ]
+        ),
+        
+        # Fieldset defines which fields are searched by default
+        fieldsets = [
+            FieldSet(
+                name = "default",
+                fields = [
+                    "title",
+                    "chunks",  # Fixed: was "chunk", should be "chunks"
+                ],
+            ),
+        ], 
 
-            # Fieldset defines which fields are searched by default
-            fieldsets = [
-                FieldSet(
-                    name = "default",
-                    fields = [
-                        "title",
-                        "chunk",  # Note: should be "chunks" to match field name
-                    ],
-                ),
-            ], 
-
+        # Document summaries for different use cases
+        document_summaries = [
             # Document summary for basic document info (no special processing)
-            document_summary = DocumentSummary(
+            DocumentSummary(
                 name = "no_chunks",
-                fields=[
-                    SummaryFeature(name="id"),  # Include document ID in summary
-                    SummaryFeature(name="title"),  # Include title
-                    SummaryFeature(name="created_timestamp"),  # Include creation timestamp
-                    SummaryFeature(name="modified_timestamp"),  # Include modification timestamp
-                    SummaryFeature(name="last_opened_timestamp"),  # Include last opened timestamp
-                    SummaryFeature(name="open_count"),  # Include open count
-                    SummaryFeature(name="favorite"),  # Include favorite status
-                    SummaryFeature(name="chunks"),  # Include all chunks
+                summary_fields=[
+                    Summary(name="id"),  # Include document ID in summary
+                    Summary(name="title"),  # Include title
+                    Summary(name="created_timestamp"),  # Include creation timestamp
+                    Summary(name="modified_timestamp"),  # Include modification timestamp
+                    Summary(name="last_opened_timestamp"),  # Include last opened timestamp
+                    Summary(name="open_count"),  # Include open count
+                    Summary(name="favorite"),  # Include favorite status
+                    Summary(name="chunks"),  # Include all chunks
                 ]
             ), 
 
             # Document summary for top 3 most similar chunks
-            document_summary = DocumentSummary(
+            DocumentSummary(
                 name = "top_3_chunks",
                 from_disk = True,  # Load from disk when needed (lazy loading)
-                fields = [
-                    SummaryFeature(
+                summary_fields = [
+                    Summary(
                         name="chunks_top3", 
-                        source="chunks",  # Source field to select from
-                        select_elements_by="top_3_chunk_sim_scores"  # Function to select top 3 chunks by similarity
+                        fields=[("source", "chunks")]  # Source field to select from
+                        # Note: select_elements_by would be configured in rank profile
                     ),
                 ],
-            ), 
-        ), 
+            ),
+        ], 
     )
-
+    
+    return schema
