@@ -1,90 +1,26 @@
-from vespa.package import (
-    QueryProfile,
-    QueryProfileType,
-    QueryTypeField,
-)
+from vespa.package import QueryProfile, QueryField
 
 def create_hybrid_query_profile():
-    # Create the query profile type with all necessary fields
-    query_profile_type = QueryProfileType(
+    """
+    Create hybrid query profile for BM25 + vector similarity search.
+
+    This profile combines:
+    - BM25 text search on title and chunks
+    - Vector similarity search on title and chunk embeddings
+    - Learned linear ranking model
+    """
+
+    # Create the query profile with fields (simplified for basic deployment)
+    query_profile = QueryProfile(
         fields=[
-            QueryTypeField(
-                name="schema",
-                type="string",
-                value="doc"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(embedding)",
-                type="string",
-                value="embed(@query)"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(float_embedding)",
-                type="string",
-                value="embed(@query)"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(intercept)",
-                type="string",
-                value="-7.798639"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(avg_top_3_chunk_sim_scores_param)",
-                type="string",
-                value="13.383840"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(avg_top_3_chunk_text_scores_param)",
-                type="string",
-                value="0.203145"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(bm25_chunks_param)",
-                type="string",
-                value="0.159914"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(bm25_title_param)",
-                type="string",
-                value="0.191867"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(max_chunk_sim_scores_param)",
-                type="string",
-                value="10.067169"
-            ),
-            QueryTypeField(
-                name="ranking.features.query(max_chunk_text_scores_param)",
-                type="string",
-                value="0.153392"
-            ),
-            QueryTypeField(
+            QueryField(name="schema", value="doc"),
+            QueryField(
                 name="yql",
-                type="string",
-                value="select * from %{schema} where userInput(@query) or ({label:\"title_label\", targetHits:100}nearestNeighbor(title_embedding, embedding)) or ({label:\"chunks_label\", targetHits:100}nearestNeighbor(chunk_embeddings, embedding))"
+                value="select * from doc where userInput(@query) or ({targetHits:100}nearestNeighbor(title_embedding, float_embedding)) or ({targetHits:100}nearestNeighbor(chunk_embeddings, float_embedding))"
             ),
-            QueryTypeField(
-                name="hits",
-                type="integer",
-                value="10"
-            ),
-            QueryTypeField(
-                name="ranking.profile",
-                type="string",
-                value="learned-linear"
-            ),
-            QueryTypeField(
-                name="presentation.summary",
-                type="string",
-                value="top_3_chunks"
-            )
+            QueryField(name="hits", value=10),
+            QueryField(name="ranking.features.query(float_embedding)", value="embed(@query)"),
         ]
     )
-    
-    # Create the query profile
-    query_profile = QueryProfile(
-        id="hybrid",
-        type=query_profile_type
-    )
-    
+
     return query_profile

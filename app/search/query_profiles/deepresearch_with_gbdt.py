@@ -1,36 +1,36 @@
-from vespa.package import (
-    QueryProfile,
-    QueryProfileType,
-    QueryTypeField,
-)
-from hybrid_with_gbdt import create_hybrid_with_gbdt_query_profile as create_hybrid_with_gbdt_query_profile
+from vespa.package import QueryProfile, QueryField
+
 def create_deepresearch_with_gbdt_query_profile():
-    # First, create the query profile type
-    query_profile_type = QueryProfileType(
+    """
+    Create deep research query profile with GBDT ranking.
+
+    Combines comprehensive research retrieval with GBDT second-phase ranking.
+    """
+
+    # Create the query profile with deep research + GBDT
+    query_profile = QueryProfile(
         fields=[
-            QueryTypeField(
+            # Schema and ranking features
+            QueryField(name="schema", value="doc"),
+            QueryField(name="ranking.features.query(embedding)", value="embed(@query)"),
+            QueryField(name="ranking.features.query(float_embedding)", value="embed(@query)"),
+            QueryField(name="ranking.features.query(intercept)", value="-7.798639"),
+            QueryField(name="ranking.features.query(avg_top_3_chunk_sim_scores_param)", value="13.383840"),
+            QueryField(name="ranking.features.query(avg_top_3_chunk_text_scores_param)", value="0.203145"),
+            QueryField(name="ranking.features.query(bm25_chunks_param)", value="0.159914"),
+            QueryField(name="ranking.features.query(bm25_title_param)", value="0.191867"),
+            QueryField(name="ranking.features.query(max_chunk_sim_scores_param)", value="10.067169"),
+            QueryField(name="ranking.features.query(max_chunk_text_scores_param)", value="0.153392"),
+            QueryField(name="presentation.summary", value="top_3_chunks"),
+            # Deep research + GBDT specific
+            QueryField(
                 name="yql",
-                type="string",
-                value="select * from %{schema} where userInput(@query) or ({label:\"title_label\", targetHits:10000}nearestNeighbor(title_embedding, embedding)) or ({label:\"chunks_label\", targetHits:10000}nearestNeighbor(chunk_embeddings, embedding))"
+                value="select * from doc where userInput(@query) or ({label:\"title_label\", targetHits:10000}nearestNeighbor(title_embedding, embedding)) or ({label:\"chunks_label\", targetHits:10000}nearestNeighbor(chunk_embeddings, embedding))"
             ),
-            QueryTypeField(
-                name="hits",
-                type="integer",
-                value="100"
-            ),
-            QueryTypeField(
-                name="timeout",
-                type="string",
-                value="5s"
-            )
+            QueryField(name="hits", value=100),
+            QueryField(name="timeout", value="5s"),
+            QueryField(name="ranking.profile", value="second-with-gbdt"),
         ]
     )
-    
-    # Then create the query profile
-    query_profile = QueryProfile(
-        id="deepresearch-with-gbdt",
-        inherits=create_hybrid_with_gbdt_query_profile(),  # Inherits from another query profile
-        type=query_profile_type
-    )
-    
+
     return query_profile

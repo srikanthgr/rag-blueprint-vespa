@@ -5,9 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "fastapi[standard]>=0.120.2",
     "ipykernel>=7.0.1",
     "lightgbm>=4.6.0",
+    "loguru>=0.7.3",
     "pandas>=2.3.0",
+    "pydantic>=2.12.3",
     "pyvespa>=0.57.0",
+    "requests>=2.32.0",
     "scikit-learn>=1.7.0",
 ]

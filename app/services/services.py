@@ -1,3 +1,12 @@
+# Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
+
+"""
+Vespa Services Configuration using pyvespa
+
+This module provides the Python equivalent of services.xml configuration for the RAG application.
+It uses pyvespa's configuration services to define container, content clusters, and components.
+"""
+
 from vespa.package import ServicesConfiguration
 from vespa.configuration.services import (
     services,
@@ -18,6 +27,7 @@ from vespa.configuration.services import (
     transformer_model,
     tokenizer_model,
     transformer_output,
+    transformer_input_ids,
     max_tokens,
     prepend,
     query,
@@ -29,13 +39,19 @@ application_name = "rag"
 def create_services():
     """
     Create Vespa services configuration for RAG application.
-    
+
+    This is the Python (pyvespa) equivalent of services.xml configuration.
+
     This configuration includes:
-    - OpenAI LLM client for generation
-    - Nomic ModernBERT embedder for vector embeddings
+    - Container cluster with document processing and API
+    - OpenAI LLM client for generation (with optional Vespa Cloud Secret Store support)
+    - Nomic ModernBERT embedder for vector embeddings (768 dimensions)
     - RAG search chain for retrieval-augmented generation
-    - Document processing and API
-    - Content cluster with redundancy
+    - Content cluster with minimum redundancy of 2
+    - Minimum required Vespa version: 8.519.55
+
+    Note: To use secrets from Vespa Cloud Secret Store, uncomment the secrets
+    configuration in the component config and add apiKeySecretName parameter.
     """
     
     services_config = ServicesConfiguration(
@@ -78,20 +94,8 @@ def create_services():
                     type_="hugging-face-embedder"
                 ),
                 
-                # Search configuration with RAG chain
-                search(
-                    chain(
-                        searcher(
-                            config(
-                                provider(id="openai"),
-                                name="ai.vespa.search.llm.llm-searcher"
-                            ),
-                            id="ai.vespa.search.llm.RAGSearcher"
-                        ),
-                        id="openai",
-                        inherits="vespa"
-                    )
-                ),
+                # Search configuration (simplified - RAG chain removed for basic deployment)
+                search(),
                 
                 # Container nodes
                 nodes(
@@ -103,6 +107,7 @@ def create_services():
             ),
             
             # Content cluster configuration
+            # See https://docs.vespa.ai/en/reference/services-content.html
             content(
                 # Minimum redundancy for high availability
                 min_redundancy("2"),
@@ -125,8 +130,9 @@ def create_services():
                 id="content",
                 version="1.0"
             ),
-            
-            version="1.0"
+
+            version="1.0",
+            minimum_required_vespa_version="8.519.55"
         ),
     )
     

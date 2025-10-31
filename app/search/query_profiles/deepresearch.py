@@ -1,36 +1,39 @@
-from vespa.package import (
-    QueryProfile,
-    QueryProfileType,
-    QueryTypeField,
-)
-from hybrid import create_hybrid_query_profile as create_hybrid_query_profile
+from vespa.package import QueryProfile, QueryField
+
 def create_deepresearch_query_profile():
-    # Create the query profile type with deep research specific fields
-    query_profile_type = QueryProfileType(
+    """
+    Create deep research query profile for comprehensive document retrieval.
+
+    This profile is optimized for research tasks with:
+    - Higher targetHits for more comprehensive recall
+    - More results returned (100 hits)
+    - Longer timeout for thorough search
+    """
+
+    # Create the query profile with all fields
+    query_profile = QueryProfile(
         fields=[
-            QueryTypeField(
+            # Schema and ranking features (from hybrid)
+            QueryField(name="schema", value="doc"),
+            QueryField(name="ranking.features.query(embedding)", value="embed(@query)"),
+            QueryField(name="ranking.features.query(float_embedding)", value="embed(@query)"),
+            QueryField(name="ranking.features.query(intercept)", value="-7.798639"),
+            QueryField(name="ranking.features.query(avg_top_3_chunk_sim_scores_param)", value="13.383840"),
+            QueryField(name="ranking.features.query(avg_top_3_chunk_text_scores_param)", value="0.203145"),
+            QueryField(name="ranking.features.query(bm25_chunks_param)", value="0.159914"),
+            QueryField(name="ranking.features.query(bm25_title_param)", value="0.191867"),
+            QueryField(name="ranking.features.query(max_chunk_sim_scores_param)", value="10.067169"),
+            QueryField(name="ranking.features.query(max_chunk_text_scores_param)", value="0.153392"),
+            QueryField(name="ranking.profile", value="learned-linear"),
+            QueryField(name="presentation.summary", value="top_3_chunks"),
+            # Deep research overrides
+            QueryField(
                 name="yql",
-                type="string",
-                value="select * from %{schema} where userInput(@query) or ({label:\"title_label\", targetHits:10000}nearestNeighbor(title_embedding, embedding)) or ({label:\"chunks_label\", targetHits:10000}nearestNeighbor(chunk_embeddings, embedding))"
+                value="select * from doc where userInput(@query) or ({label:\"title_label\", targetHits:10000}nearestNeighbor(title_embedding, embedding)) or ({label:\"chunks_label\", targetHits:10000}nearestNeighbor(chunk_embeddings, embedding))"
             ),
-            QueryTypeField(
-                name="hits",
-                type="integer",
-                value="100"  # Override hits from hybrid profile (was 10)
-            ),
-            QueryTypeField(
-                name="timeout",
-                type="string",
-                value="5s"  # 5 second timeout for deep research
-            )
+            QueryField(name="hits", value=100),  # More results for comprehensive research
+            QueryField(name="timeout", value="5s"),  # Longer timeout
         ]
     )
-    
-    # Create the query profile that inherits from hybrid
-    query_profile = QueryProfile(
-        id="deepresearch",
-        inherits=create_hybrid_query_profile(),  # Inherit from the hybrid query profile
-        type=query_profile_type
-    )
-    
+
     return query_profile
