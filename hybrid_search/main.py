@@ -69,7 +69,35 @@ def rank_profiles():
                         expression="reciprocal_rank_fusion(bm25sum, closeness(field, embedding))",
                         rerank_count=1000,
                     )
-                )
+                ),
+        RankProfile(
+            name="layered_ranking",
+            inputs = [("query(q)", "tensor<float>(x[384])")],
+            functions = [
+                Function(
+                    name = "my_distance",
+                    expression = "euclidean_distance(query(embedding), attribute(embedding), x)"
+                ),
+                Function(
+                    name = "my_distance_scores",
+                    expression = "1 / (my_distance() + 1)"
+                ),
+                Function(
+                    name = "my_text_scores",
+                    expression = "elementwise(bm25(myChunks), chunk, float)"
+                ),
+                Function(
+                    name = "chunk_scores",
+                    expression = "merge(my_distance_scores, my_text_scores, f(a,b)(a+b))"
+                ),
+                Function(
+                    name = "best_chunks",
+                    expression = "top(3, chunk_scores())"
+                ),
+            ],
+            first_phase = "sum(chunk_scores())",
+            summary_features = ["best_chunks"]
+        )
     ]
     return rank_profiles
 
@@ -108,7 +136,13 @@ def create_documents():
                         indexing= ['input title . " " . input body', "embed e5", "attribute", "index"],
                         ann=HNSW(distance_metric="angular"),
                         is_document_field=False
-                )
+                ),
+                Field(
+                    name="chunks",
+                    type="array<string>",
+                    indexing=["index", "summary"],
+                    summary ="select-elements-by: best_chunks"
+                ),
             ]
         )
     return documents
