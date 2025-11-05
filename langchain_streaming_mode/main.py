@@ -13,6 +13,14 @@ import unicodedata
 from vespa.package import Component, Parameter
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document as LCDocument
+from dotenv import load_dotenv
+
+load_dotenv()
+
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
+if not openai_api_key:
+    raise ValueError("OPENAI_API_KEY is not set")
 
 logger = getLogger(__name__)
 vespa_app = None
@@ -227,13 +235,14 @@ class VespaStreamingLayeredRetriever(BaseRetriever):
     Key differences from VespaStreamingHybridRetriever:
     - Uses "layeredranking" rank profile (semantic + lexical filtering)
     - Extracts chunks from "best_chunks" instead of "similarities"
-    - No chunk_similarity_threshold needed (join operation provides filtering)
+    - Join operation provides initial filtering, min_chunk_score provides additional threshold
     """
     
     app: Vespa
     user: str
     pages: int = 5
     chunks_per_page: int = 3
+    min_chunk_score: float = 0.0  # Minimum score threshold for chunk inclusion
 
     class Config:
         arbitrary_types_allowed = True
@@ -266,13 +275,18 @@ class VespaStreamingLayeredRetriever(BaseRetriever):
             fields = hit["fields"]
             chunks_with_scores = self._get_best_chunks(fields)
             
-            # Best k chunks already filtered by layered ranking (no threshold needed)
-            best_chunks_on_page = " ### ".join(
-                [
-                    chunk
-                    for chunk, score in chunks_with_scores[0 : self.chunks_per_page]
-                ]
-            )
+            # Filter chunks by score threshold and limit to chunks_per_page
+            filtered_chunks = [
+                chunk
+                for chunk, score in chunks_with_scores[0 : self.chunks_per_page]
+                if score >= self.min_chunk_score
+            ]
+            
+            # Skip documents with no chunks passing the threshold
+            if not filtered_chunks:
+                continue
+            
+            best_chunks_on_page = " ### ".join(filtered_chunks)
             
             documents.append(
                 LCDocument(
@@ -284,6 +298,8 @@ class VespaStreamingLayeredRetriever(BaseRetriever):
                         "page": fields["page"],
                         "authors": fields["authors"],
                         "features": fields["matchfeatures"],
+                        "chunks_filtered": len(chunks_with_scores) - len(filtered_chunks),
+                        "chunks_returned": len(filtered_chunks),
                     },
                 )
             )
@@ -424,11 +440,71 @@ async def query_endpoint(q: str = Query(..., alias="query", description="Search 
         }
     return json.dumps(response.get_json(), indent=2)
 
-@app.get("/query-layered-retriever ")  
-async def query_endpoint(q: str = Query(..., alias="query", description="Search query text")):
-    retriever = VespaStreamingLayeredRetriever(app=vespa_app, user="jo-bergum")
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+
+prompt_template = """
+Answer the question based only on the following context. 
+Cite the page number and the url of the document you are citing.
+
+{context}
+Question: {question}
+"""
+prompt = ChatPromptTemplate.from_template(prompt_template)
+model = ChatOpenAI(api_key=openai_api_key)
+
+
+def format_prompt_context(docs) -> str:
+    context = []
+    for d in docs:
+        context.append(f"{d.metadata['title']} by {d.metadata['authors']}\n")
+        context.append(f"url: {d.metadata['url']}\n")
+        context.append(f"page: {d.metadata['page']}\n")
+        context.append(f"{d.page_content}\n\n")
+    return "".join(context)
+
+
+def create_rag_chain(retriever):
+    """Create a RAG chain with the given retriever."""
+    return (
+        {
+            "context": retriever | format_prompt_context,
+            "question": RunnablePassthrough(),
+        }
+        | prompt
+        | model
+        | StrOutputParser()
+    )
+
+
+@app.get("/query-layered-retriever")  
+async def query_endpoint(
+    q: str = Query(..., alias="query", description="Search query text"),
+    min_score: float = Query(0.0, alias="min_score", description="Minimum chunk score threshold (0.0-1.0)")
+):
+    retriever = VespaStreamingLayeredRetriever(
+        app=vespa_app, 
+        user="jo-bergum",
+        min_chunk_score=min_score
+    )
     documents = retriever._get_relevant_documents(q)
     return json.dumps([doc.model_dump() for doc in documents], indent=2)
+
+@app.get("/query-layered-retriever-chain")
+async def query_chain_endpoint(
+    q: str = Query(..., alias="query", description="Search query text"),
+    min_score: float = Query(0.0, alias="min_score", description="Minimum chunk score threshold (0.0-1.0)")
+):
+    retriever = VespaStreamingLayeredRetriever(
+        app=vespa_app, 
+        user="jo-bergum",
+        min_chunk_score=min_score
+    )
+    chain = create_rag_chain(retriever)
+    result = chain.invoke(q)
+    return {"result": result}
 
 if __name__ == "__main__":
     import uvicorn
