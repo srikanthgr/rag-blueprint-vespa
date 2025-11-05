@@ -73,14 +73,14 @@ def create_docs_schema():
 
         # Fields outside document block (for computed/embedded fields)
         fields = [
-            # Vector embedding for document title (using 768 dimensions to match query)
+            # Vector embedding for document title (using 96 dimensions with binary quantization)
             # Must be outside document block because it uses 'embed' in indexing
             Field(
                 name = "title_embedding",
-                type = "tensor<float>(x[768])",
-                indexing = "input title | embed | attribute | index",
-                ann = HNSW(distance_metric = "angular"),
-                attribute = ["fast-search"]
+                type = "tensor<int8>(x[96])",
+                indexing = "input title | embed | pack_bits | attribute | index",
+                ann = HNSW(distance_metric = "hamming"),
+                attribute = ["distance-metric: hamming"]
             ),
 
             # Array of text chunks
@@ -92,14 +92,14 @@ def create_docs_schema():
                 index = "enable-bm25"
             ),
 
-            # Vector embeddings for each chunk (using 768 dimensions to match query)
+            # Vector embeddings for each chunk (using 96 dimensions with binary quantization)
             # Must be outside document block because it uses 'embed' in indexing
             Field(
                 name = "chunk_embeddings",
-                type = "tensor<float>(chunk{}, x[768])",
-                indexing = "input text | chunk fixed-length 1024 | embed | attribute | index",
-                ann = HNSW(distance_metric = "angular"),
-                attribute = ["fast-search"]
+                type = "tensor<int8>(chunk{}, x[96])",
+                indexing = "input text | chunk fixed-length 1024 | embed | pack_bits | attribute | index",
+                ann = HNSW(distance_metric = "hamming"),
+                attribute = ["distance-metric: hamming"]
             ),
         ],
         
@@ -108,10 +108,11 @@ def create_docs_schema():
             FieldSet(
                 name = "default",
                 fields = [
-                    "title",  # Only document fields can be in fieldsets
+                    "title",
+                    "chunks",
                 ],
             ),
-        ], 
+        ],
     )
-    
+
     return schema

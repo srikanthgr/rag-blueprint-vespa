@@ -1,8 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3:*)",
-      "WebFetch(domain:vespa-engine.github.io)"
+      "Read(//var/run/**)"
     ],
     "deny": [],
     "ask": []
