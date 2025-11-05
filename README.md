@@ -2,6 +2,8 @@
 
 A complete Retrieval-Augmented Generation (RAG) application built with [Vespa](https://vespa.ai/) and FastAPI, using **pyvespa** for declarative configuration.
 
+> **⚠️ Note**: This is an experimental project for learning and exploration purposes.
+
 ## 🚀 Features
 
 - **Complete Vespa RAG Stack** - OpenAI LLM integration, Nomic ModernBERT embeddings (768-dim), hybrid search
@@ -192,8 +194,3 @@ Built with:
 - [pyvespa](https://pyvespa.readthedocs.io/) - Python API for Vespa
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
 - OpenAI & Nomic AI - LLM and embedding models
-
-
-lsof -ti:8000 | head -5
-
-kill -9 <>
