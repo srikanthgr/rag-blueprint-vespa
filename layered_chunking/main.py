@@ -85,7 +85,9 @@ def create_schema():
             Field(
                 name="chunks", 
                 type="array<string>", 
-                indexing=["summary", "index"]
+                indexing=["summary", "index"],
+                index=["enable-bm25"],
+                select_elements_by="best_chunks"
             ),
             Field(
                 name="embedding",
@@ -445,23 +447,38 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
-prompt_template = """
-Answer the question based only on the following context. 
-Cite the page number and the url of the document you are citing.
+prompt_template = """You are a helpful AI assistant that provides comprehensive, detailed answers based on the given context.
 
+Instructions:
+- Provide a thorough answer using specific details, examples, and data points from the context
+- Synthesize information from multiple sources when available
+- Include relevant numbers, comparisons, and technical details
+- Cite sources by mentioning the page number(s) and document title
+- If the context contains tables, performance metrics, or experimental results, include them
+- Structure your answer with clear paragraphs for better readability
+
+Context:
 {context}
+
 Question: {question}
-"""
+
+Detailed Answer:"""
 prompt = ChatPromptTemplate.from_template(prompt_template)
-model = ChatOpenAI(api_key=openai_api_key)
+model = ChatOpenAI(
+    api_key=openai_api_key,
+    temperature=0.1,  # Lower temperature for more focused, deterministic answers
+    model="gpt-4o-mini"  # Use GPT-4 variant for better comprehension
+)
 
 
 def format_prompt_context(docs) -> str:
     context = []
-    for d in docs:
-        context.append(f"{d.metadata['title']} by {d.metadata['authors']}\n")
-        context.append(f"url: {d.metadata['url']}\n")
-        context.append(f"page: {d.metadata['page']}\n")
+    for i, d in enumerate(docs, 1):
+        context.append(f"--- Document {i} ---\n")
+        context.append(f"Title: {d.metadata['title']}\n")
+        context.append(f"Authors: {', '.join(d.metadata['authors'])}\n")
+        context.append(f"URL: {d.metadata['url']}\n")
+        context.append(f"Page: {d.metadata['page']}\n\n")
         context.append(f"{d.page_content}\n\n")
     return "".join(context)
 
