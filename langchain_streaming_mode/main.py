@@ -205,6 +205,13 @@ def create_layered_rank_profile():
             ),
         ],
         first_phase="sum(chunk_scores())",
+        match_features=[
+            "my_distance",
+            "my_distance_scores", 
+            "my_text_scores",
+            "chunk_scores",
+            "best_chunks",
+        ],
         summary_features=["best_chunks"]
     )
     return rank_profile
