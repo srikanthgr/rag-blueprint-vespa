@@ -70,7 +70,11 @@ def create_schema():
                 type="map<string,string>",
                 indexing=["summary", "index"],
             ),
-            Field(name="chunks", type="array<string>", indexing=["summary", "index"]),
+            Field(
+                name="chunks", 
+                type="array<string>", 
+                indexing=["summary", "index"]
+            ),
             Field(
                 name="embedding",
                 type="tensor(chunk{}, x[384])",
@@ -174,6 +178,36 @@ def create_rank_profile():
 )
     return rank_profile
 
+def create_layered_rank_profile():
+    rank_profile = RankProfile(
+        name="layeredranking",  
+        inputs = [("query(q)", "tensor(x[384])")],
+        functions=[
+            Function(
+                name="my_distance",
+                expression="euclidean_distance(query(q), attribute(embedding), x)",
+            ),
+            Function(
+                name="my_distance_scores",
+                expression="1 / (1+my_distance)",
+            ),
+            Function(
+                name="my_text_scores",
+                expression="elementwise(bm25(chunks), chunk, float)",
+            ),
+            Function(
+                name="chunk_scores",
+                expression="join(my_distance_scores, my_text_scores, f(a,b)(a+b))",
+            ),
+            Function(
+                name="best_chunks",
+                expression="top(3, chunk_scores)",
+            ),
+        ],
+        first_phase="sum(chunk_scores())",
+        summary_features=["best_chunks"]
+    )
+    return rank_profile
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -182,7 +216,9 @@ async def lifespan(app: FastAPI):
 
     try:
         schema = create_schema()
+        
         schema.add_rank_profile(create_rank_profile())
+        schema.add_rank_profile(create_layered_rank_profile())
         package = ApplicationPackage(
             name="langchainstreaming",
             schema=[schema],
@@ -249,6 +285,28 @@ async def query_endpoint(q: str = Query(..., alias="query", description="Search 
         body={
             "presentation.format.tensors": "short-value",
             "input.query(q)": 'embed(e5, "why is colbert effective?")',
+        },
+        timeout="2s",
+    )   
+    if not response.is_successful():
+        return {
+            "status": "error",
+            "message": "Query failed",
+            "status_code": response.status_code,
+            "response": response.get_json()
+        }
+    return json.dumps(response.get_json(), indent=2)
+
+@app.get("/query-layered")  
+async def query_endpoint(q: str = Query(..., alias="query", description="Search query text")):
+    response: VespaQueryResponse = vespa_app.query(
+        yql="select id,title,page,chunks from pdf where userQuery() or ({targetHits:10}nearestNeighbor(embedding,q))",
+        groupname="jo-bergum",
+        ranking="layeredranking",
+        query=q,
+        body={
+            "presentation.format.tensors": "short-value",
+            "input.query(q)": f'embed(e5, "{q}")',
         },
         timeout="2s",
     )   

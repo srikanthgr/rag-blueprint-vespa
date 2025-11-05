@@ -234,3 +234,41 @@ async def batch_feed(documents: List[Dict]):
 
     vespa_app.feed_iterable(vespa_feed, schema="doc", namespace="tutorial", callback=callback)
     return {"message": "Documents fed successfully"}
+
+
+
+
+
+
+
+
+
+
+    RankProfile(
+        name="layeredranking",  
+        inputs = [("query(q)", "tensor(x[384])")],
+        functions=[
+            Function(
+                name="my_distance",
+                expression= "euclidean_distance(query(embedding), attribute(myEmbeddings), x)",
+            ),
+            Function(
+                name="my_distance_scores",
+                expression="1 / (my_distance() + 1) ",
+            ),
+            Function(
+                name="my_text_scores",
+                expression="elementwise(bm25(chunks), chunk, float)",
+            ),
+            Function(
+                name="chunk_scores",
+                expression="merge(my_distance_scores, my_text_scores, f(a,b)(a+b))",
+            ),
+            Function(
+                name="best_chunks",
+                expression="top(3, chunk_scores())",
+            ),
+        ],
+        first_phase="sum(chunk_scores())",
+        summary_features=["best_chunks"]
+    )

@@ -192,3 +192,8 @@ Built with:
 - [pyvespa](https://pyvespa.readthedocs.io/) - Python API for Vespa
 - [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
 - OpenAI & Nomic AI - LLM and embedding models
+
+
+lsof -ti:8000 | head -5
+
+kill -9 <>
