@@ -10,6 +10,8 @@ from pathlib import Path
 import os
 import unicodedata
 from vespa.package import Component, Parameter
+from langchain_core.retrievers import BaseRetriever
+
 logger = getLogger(__name__)
 vespa_app = None
 vespa_docker = None
@@ -215,6 +217,58 @@ def create_layered_rank_profile():
         summary_features=["best_chunks"]
     )
     return rank_profile
+
+class VespaStreamingLayeredRetriever(BaseRetriever):
+    def _parse_response(self, response: VespaQueryResponse) -> List[Document]:
+        documents = []
+        
+        for hit in response.hits:
+            fields = hit["fields"]
+            
+            # Extract best chunks using matchfeatures
+            best_chunks_content = self._extract_best_chunks(fields)
+            
+            documents.append(
+                Document(
+                    page_content=" ### ".join(best_chunks_content),
+                    metadata={
+                        "title": fields["title"],
+                        "all_chunks_count": len(fields["chunks"]),
+                        "selected_chunks_count": len(best_chunks_content),
+                    }
+                )
+            )
+        
+        return documents
+    
+    def _extract_best_chunks(self, fields: dict) -> List[str]:
+        """
+        Workaround for pyvespa's lack of select-elements-by support.
+        
+        This mimics what native Vespa would do with:
+        summary { select-elements-by: best_chunks }
+        """
+        match_features = fields.get("matchfeatures", {})
+        best_chunks_dict = match_features.get("best_chunks", {})
+        
+        if not best_chunks_dict:
+            # Fallback if best_chunks not in match_features
+            return fields["chunks"]
+        
+        all_chunks = fields["chunks"]
+        
+        # Build list of (chunk_content, score) tuples
+        selected = []
+        for idx_str, score in best_chunks_dict.items():
+            idx = int(idx_str)
+            if 0 <= idx < len(all_chunks):
+                selected.append((all_chunks[idx], score))
+        
+        # Sort by score descending
+        selected.sort(key=lambda x: x[1], reverse=True)
+        
+        # Return just the chunk text
+        return [chunk for chunk, _ in selected]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

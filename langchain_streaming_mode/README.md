@@ -592,18 +592,177 @@ This weights semantic similarity (70%) higher than lexical match (30%).
 
 ### 1. `select-elements-by` Not Supported in Pyvespa
 
-The official Vespa docs show:
+**The Problem:**
+
+The official Vespa documentation shows how to automatically return only selected chunks:
+
 ```
 field myChunks type array<string> {
+    indexing: index | summary
     summary {
         select-elements-by: best_chunks
     }
 }
 ```
 
-This would automatically filter returned chunks to only the best ones. However, **pyvespa currently doesn't support this syntax** and it causes schema parsing errors.
+This would tell Vespa to return ONLY the chunks identified by the `best_chunks` function, reducing network transfer.
 
-**Workaround**: All chunks are still returned in the response. You must filter them manually using the `best_chunks` indices from `matchfeatures`.
+However, **pyvespa currently doesn't support this syntax**:
+
+```python
+Field(
+    name="chunks",
+    type="array<string>",
+    indexing=["index", "summary"],
+    summary="select-elements-by: best_chunks"  # ❌ Causes deployment error
+)
+```
+
+**Error:** `Failed parsing schema: Encountered " "{" "{"" at line X`
+
+**Current Behavior:**
+
+All chunks are returned in the response, even though only some are selected as "best":
+
+```json
+{
+  "chunks": [
+    "chunk 0 content...",
+    "chunk 1 content...",
+    "chunk 2 content...",
+    "chunk 3 content..."
+  ],
+  "matchfeatures": {
+    "best_chunks": {
+      "0": 0.890,
+      "2": 0.837,
+      "3": 0.920
+    }
+  }
+}
+```
+
+All 4 chunks are transferred, but only chunks 0, 2, and 3 are marked as "best".
+
+**The Workaround: Manual Python Filtering**
+
+You must filter chunks in your Python code using the `best_chunks` indices:
+
+```python
+def _extract_best_chunks(self, fields: dict) -> List[str]:
+    """
+    Extract only the chunks identified as 'best' by Vespa.
+    
+    This mimics what native Vespa would do with:
+    summary { select-elements-by: best_chunks }
+    """
+    match_features = fields.get("matchfeatures", {})
+    best_chunks_dict = match_features.get("best_chunks", {})
+    
+    if not best_chunks_dict:
+        # Fallback if best_chunks not in match_features
+        return fields["chunks"]
+    
+    all_chunks = fields["chunks"]
+    
+    # Build list of (chunk_content, score) tuples
+    selected = []
+    for idx_str, score in best_chunks_dict.items():
+        idx = int(idx_str)
+        if 0 <= idx < len(all_chunks):
+            selected.append((all_chunks[idx], score))
+    
+    # Sort by score descending
+    selected.sort(key=lambda x: x[1], reverse=True)
+    
+    # Return just the chunk text
+    return [chunk for chunk, _ in selected]
+
+# Usage in retriever
+for hit in response.hits:
+    fields = hit["fields"]
+    
+    # Get only the best chunks
+    best_chunks = self._extract_best_chunks(fields)
+    
+    # Use for LLM context
+    page_content = " ### ".join(best_chunks)
+```
+
+**What This Solves:**
+
+| Aspect | Native select-elements-by | Python Workaround |
+|--------|--------------------------|-------------------|
+| **Chunk Selection** | ✅ Correct | ✅ Correct (same result) |
+| **Network Transfer** | ✅ Only best chunks | ❌ All chunks transferred |
+| **Processing** | ✅ Done in Vespa | ❌ Done in Python |
+| **Memory Usage** | ✅ Minimal | ❌ Higher |
+| **Latency** | ✅ Lower | ⚠️ Slightly higher |
+
+**Impact Analysis:**
+
+For a typical query returning 5 documents with 10 chunks each (500 chars/chunk):
+
+- **With select-elements-by (native)**: 5 docs × 3 chunks × 500 chars = ~7.5KB transferred
+- **Without (pyvespa workaround)**: 5 docs × 10 chunks × 500 chars = ~25KB transferred
+- **3.3x more data over the network**
+
+**When This Matters:**
+
+Low Impact (workaround is fine):
+- ✅ Small documents (few chunks)
+- ✅ Low query volume
+- ✅ Fast network
+- ✅ Development/testing
+
+High Impact (significant overhead):
+- ❌ Large documents (many chunks)
+- ❌ High query volume (1000s QPS)
+- ❌ Distributed deployment
+- ❌ Limited bandwidth
+
+**Alternative: Use Native Vespa Schema Files**
+
+If network optimization is critical, bypass pyvespa for schema definition:
+
+```python
+# Create native .sd file
+with open("schemas/pdf.sd", "w") as f:
+    f.write("""
+    schema pdf {
+        document pdf {
+            field chunks type array<string> {
+                indexing: index | summary
+            }
+        }
+        
+        field chunks type array<string> {
+            indexing: index | summary
+            summary {
+                select-elements-by: best_chunks
+            }
+        }
+        
+        rank-profile layeredranking {
+            function best_chunks() {
+                expression: top(3, chunk_scores)
+            }
+        }
+    }
+    """)
+
+# Deploy using schema directory
+package = ApplicationPackage(
+    name="myapp",
+    schema_dir="schemas/"
+)
+```
+
+This gives you the full power of native Vespa schema syntax, including `select-elements-by`.
+
+**Bottom Line:**
+
+The Python workaround **solves the chunk selection problem** (you get the right chunks for your LLM) but **doesn't solve the network efficiency problem** (all chunks still transferred). For most RAG applications, this is acceptable - the quality improvement from layered ranking's dual-criteria filtering outweighs the network overhead.
 
 ### 2. Parameter Name Consistency
 
