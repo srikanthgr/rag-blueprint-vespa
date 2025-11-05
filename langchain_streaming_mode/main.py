@@ -4,6 +4,7 @@ from logging import getLogger
 from vespa.package import ApplicationPackage
 from vespa.deployment import VespaDocker
 from vespa.io import VespaQueryResponse
+from vespa.application import Vespa
 import json
 from typing import List, Dict
 from pathlib import Path
@@ -11,6 +12,7 @@ import os
 import unicodedata
 from vespa.package import Component, Parameter
 from langchain_core.retrievers import BaseRetriever
+from langchain_core.documents import Document as LCDocument
 
 logger = getLogger(__name__)
 vespa_app = None
@@ -219,56 +221,98 @@ def create_layered_rank_profile():
     return rank_profile
 
 class VespaStreamingLayeredRetriever(BaseRetriever):
-    def _parse_response(self, response: VespaQueryResponse) -> List[Document]:
-        documents = []
+    """
+    LangChain retriever using Vespa's layered ranking.
+    
+    Key differences from VespaStreamingHybridRetriever:
+    - Uses "layeredranking" rank profile (semantic + lexical filtering)
+    - Extracts chunks from "best_chunks" instead of "similarities"
+    - No chunk_similarity_threshold needed (join operation provides filtering)
+    """
+    
+    app: Vespa
+    user: str
+    pages: int = 5
+    chunks_per_page: int = 3
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def _get_relevant_documents(self, query: str) -> List[LCDocument]:
+        response: VespaQueryResponse = self.app.query(
+            yql="select id, url, title, page, authors, chunks from pdf where userQuery() or ({targetHits:20}nearestNeighbor(embedding,q))",
+            groupname=self.user,
+            ranking="layeredranking",  # Changed from "hybrid"
+            query=query,
+            hits=self.pages,
+            body={
+                "presentation.format.tensors": "short-value",
+                "input.query(q)": f'embed(e5, "query: {query} ")',
+            },
+            timeout="2s",
+        )
+        
+        if not response.is_successful():
+            raise ValueError(
+                f"Query failed with status code {response.status_code}, url={response.url} response={response.json}"
+            )
+        
+        return self._parse_response(response)
+
+    def _parse_response(self, response: VespaQueryResponse) -> List[LCDocument]:
+        documents: List[LCDocument] = []
         
         for hit in response.hits:
             fields = hit["fields"]
+            chunks_with_scores = self._get_best_chunks(fields)
             
-            # Extract best chunks using matchfeatures
-            best_chunks_content = self._extract_best_chunks(fields)
+            # Best k chunks already filtered by layered ranking (no threshold needed)
+            best_chunks_on_page = " ### ".join(
+                [
+                    chunk
+                    for chunk, score in chunks_with_scores[0 : self.chunks_per_page]
+                ]
+            )
             
             documents.append(
-                Document(
-                    page_content=" ### ".join(best_chunks_content),
+                LCDocument(
+                    id=fields["id"],
+                    page_content=best_chunks_on_page,
                     metadata={
                         "title": fields["title"],
-                        "all_chunks_count": len(fields["chunks"]),
-                        "selected_chunks_count": len(best_chunks_content),
-                    }
+                        "url": fields["url"],
+                        "page": fields["page"],
+                        "authors": fields["authors"],
+                        "features": fields["matchfeatures"],
+                    },
                 )
             )
         
         return documents
-    
-    def _extract_best_chunks(self, fields: dict) -> List[str]:
+
+    def _get_best_chunks(self, hit_fields: dict) -> List[tuple]:
         """
-        Workaround for pyvespa's lack of select-elements-by support.
+        Extract best chunks identified by Vespa's layered ranking.
         
-        This mimics what native Vespa would do with:
-        summary { select-elements-by: best_chunks }
+        Replaces _get_chunk_similarities from hybrid retriever.
+        Uses "best_chunks" from matchfeatures instead of "similarities".
         """
-        match_features = fields.get("matchfeatures", {})
-        best_chunks_dict = match_features.get("best_chunks", {})
+        match_features = hit_fields["matchfeatures"]
+        best_chunks = match_features["best_chunks"]  # Changed from "similarities"
         
-        if not best_chunks_dict:
-            # Fallback if best_chunks not in match_features
-            return fields["chunks"]
+        # Get all chunks
+        chunks = hit_fields["chunks"]
         
-        all_chunks = fields["chunks"]
-        
-        # Build list of (chunk_content, score) tuples
-        selected = []
-        for idx_str, score in best_chunks_dict.items():
+        # Build list of (chunk_text, score) for selected chunks
+        chunks_with_scores = []
+        for idx_str, score in best_chunks.items():
             idx = int(idx_str)
-            if 0 <= idx < len(all_chunks):
-                selected.append((all_chunks[idx], score))
+            if idx < len(chunks):
+                chunks_with_scores.append((chunks[idx], score))
         
-        # Sort by score descending
-        selected.sort(key=lambda x: x[1], reverse=True)
-        
-        # Return just the chunk text
-        return [chunk for chunk, _ in selected]
+        # Sort by score descending (highest first)
+        return sorted(chunks_with_scores, key=lambda x: x[1], reverse=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -379,6 +423,12 @@ async def query_endpoint(q: str = Query(..., alias="query", description="Search 
             "response": response.get_json()
         }
     return json.dumps(response.get_json(), indent=2)
+
+@app.get("/query-layered-retriever ")  
+async def query_endpoint(q: str = Query(..., alias="query", description="Search query text")):
+    retriever = VespaStreamingLayeredRetriever(app=vespa_app, user="jo-bergum")
+    documents = retriever._get_relevant_documents(q)
+    return json.dumps([doc.model_dump() for doc in documents], indent=2)
 
 if __name__ == "__main__":
     import uvicorn
