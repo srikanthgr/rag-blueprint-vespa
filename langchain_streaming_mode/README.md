@@ -15,6 +15,13 @@ A comprehensive implementation demonstrating Vespa's **Layered Ranking** feature
 - [Performance Comparison](#performance-comparison)
 - [Advanced Topics](#advanced-topics)
 
+## Additional Documentation
+
+- **[QUICKSTART.md](QUICKSTART.md)** - Get started in 5 minutes
+- **[OBSERVATIONS.md](OBSERVATIONS.md)** - Technical deep dive and debugging insights
+- **[HYBRID_VS_LAYERED_COMPARISON.md](HYBRID_VS_LAYERED_COMPARISON.md)** - Detailed comparison: Hybrid + Python filtering vs Layered ranking
+- **[retriever_comparison.py](retriever_comparison.py)** - Practical implementation of both approaches as LangChain retrievers
+
 ## Overview
 
 This application provides a FastAPI-based service that:
