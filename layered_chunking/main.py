@@ -230,6 +230,238 @@ def create_layered_rank_profile():
     )
     return rank_profile
 
+def create_layered_with_second_phase():
+    from vespa.package import SecondPhaseRanking
+    
+    rank_profile = RankProfile(
+        name="layered_with_second_phase",  
+        inputs=[("query(q)", "tensor(x[384])")],
+        functions=[
+            Function(
+                name="my_distance",
+                expression="euclidean_distance(query(q), attribute(embedding), x)",
+            ),
+            Function(
+                name="my_distance_scores",
+                expression="1 / (1+my_distance)",
+            ),
+            Function(
+                name="my_text_scores",
+                expression="elementwise(bm25(chunks), chunk, float)",
+            ),
+            Function(
+                name="chunk_scores",
+                expression="join(my_distance_scores, my_text_scores, f(a,b)(a+b))",
+            ),
+            Function(
+                name="best_chunks",
+                expression="top(3, chunk_scores)",
+            ),
+            # Additional second-phase features
+            Function(
+                name="title_score",
+                expression="nativeRank(title)",
+            ),
+            Function(
+                name="max_similarity",
+                expression="reduce(my_distance_scores, max, chunk)",
+            ),
+            Function(
+                name="avg_similarity", 
+                expression="reduce(my_distance_scores, avg, chunk)",
+            ),
+        ],
+        first_phase="sum(chunk_scores())",
+        second_phase=SecondPhaseRanking(
+            expression="sum(chunk_scores()) * 0.7 + title_score * 0.2 + max_similarity * 0.1",
+            rerank_count=100  # Rerank top 100 from first phase
+        ),
+        match_features=[
+            "my_distance",
+            "my_distance_scores", 
+            "my_text_scores",
+            "chunk_scores",
+            "best_chunks",
+            "title_score",
+            "max_similarity",
+            "avg_similarity",
+        ],
+        summary_features=["best_chunks"]
+    )
+    return rank_profile
+
+def create_layered_with_diversity():
+    from vespa.package import SecondPhaseRanking
+    
+    rank_profile = RankProfile(
+        name="layered_with_diversity",  
+        inputs=[("query(q)", "tensor(x[384])")],
+        functions=[
+            Function(
+                name="my_distance",
+                expression="euclidean_distance(query(q), attribute(embedding), x)",
+            ),
+            Function(
+                name="my_distance_scores",
+                expression="1 / (1+my_distance)",
+            ),
+            Function(
+                name="my_text_scores",
+                expression="elementwise(bm25(chunks), chunk, float)",
+            ),
+            Function(
+                name="chunk_scores",
+                expression="join(my_distance_scores, my_text_scores, f(a,b)(a+b))",
+            ),
+            Function(
+                name="best_chunks",
+                expression="top(3, chunk_scores)",
+            ),
+            # Diversity metrics
+            Function(
+                name="chunk_spread",
+                expression="reduce(my_distance_scores, max, chunk) - reduce(my_distance_scores, min, chunk)",
+            ),
+            Function(
+                name="avg_chunk_score",
+                expression="reduce(chunk_scores, avg, chunk)",
+            ),
+            Function(
+                name="max_chunk_score",
+                expression="reduce(chunk_scores, max, chunk)",
+            ),
+        ],
+        first_phase="sum(chunk_scores())",
+        second_phase=SecondPhaseRanking(
+            # Reward documents with diverse chunk scores (more comprehensive coverage)
+            # Higher spread = more diverse content
+            expression="sum(chunk_scores()) * 0.7 + chunk_spread * 2.0 + avg_chunk_score * 0.3",
+            rerank_count=50
+        ),
+        match_features=[
+            "my_distance_scores", 
+            "my_text_scores",
+            "chunk_scores",
+            "best_chunks",
+            "chunk_spread",
+            "avg_chunk_score",
+            "max_chunk_score",
+        ],
+        summary_features=["best_chunks"]
+    )
+    return rank_profile
+
+def create_layered_with_maxsim():
+    from vespa.package import SecondPhaseRanking
+    
+    rank_profile = RankProfile(
+        name="layered_with_maxsim",  
+        inputs=[("query(q)", "tensor(x[384])")],
+        functions=[
+            Function(
+                name="my_distance",
+                expression="euclidean_distance(query(q), attribute(embedding), x)",
+            ),
+            Function(
+                name="my_distance_scores",
+                expression="1 / (1+my_distance)",
+            ),
+            Function(
+                name="my_text_scores",
+                expression="elementwise(bm25(chunks), chunk, float)",
+            ),
+            Function(
+                name="chunk_scores",
+                expression="join(my_distance_scores, my_text_scores, f(a,b)(a+b))",
+            ),
+            Function(
+                name="best_chunks",
+                expression="top(3, chunk_scores)",
+            ),
+            # MaxSim-style scoring (ColBERT-like)
+            Function(
+                name="maxsim_score",
+                expression="reduce(my_distance_scores, max, chunk)",
+            ),
+            Function(
+                name="sumsim_score",
+                expression="reduce(my_distance_scores, sum, chunk)",
+            ),
+        ],
+        first_phase="sum(chunk_scores())",
+        second_phase=SecondPhaseRanking(
+            # More expensive but precise: combine max and sum similarities
+            expression="maxsim_score * 10 + sumsim_score * 0.1 + sum(chunk_scores()) * 0.5",
+            rerank_count=100
+        ),
+        match_features=[
+            "my_distance_scores", 
+            "my_text_scores",
+            "chunk_scores",
+            "best_chunks",
+            "maxsim_score",
+            "sumsim_score",
+        ],
+        summary_features=["best_chunks"]
+    )
+    return rank_profile
+
+def create_layered_with_normalized_fusion():
+    from vespa.package import SecondPhaseRanking
+    
+    rank_profile = RankProfile(
+        name="layered_normalized",  
+        inputs=[
+            ("query(q)", "tensor(x[384])"),
+        ],
+        functions=[
+            Function(
+                name="my_distance",
+                expression="euclidean_distance(query(q), attribute(embedding), x)",
+            ),
+            Function(
+                name="my_distance_scores",
+                expression="1 / (1+my_distance)",
+            ),
+            Function(
+                name="my_text_scores",
+                expression="elementwise(bm25(chunks), chunk, float)",
+            ),
+            # Normalize scores before combining
+            Function(
+                name="normalized_semantic",
+                expression="my_distance_scores / (reduce(my_distance_scores, sum, chunk) + 0.001)",
+            ),
+            Function(
+                name="normalized_lexical",
+                expression="my_text_scores / (reduce(my_text_scores, sum, chunk) + 0.001)",
+            ),
+            # Combine with fixed 50/50 weighting (balanced hybrid)
+            Function(
+                name="chunk_scores",
+                expression="join(normalized_semantic, normalized_lexical, f(a,b)(a * 0.5 + b * 0.5))",
+            ),
+            Function(
+                name="best_chunks",
+                expression="top(3, chunk_scores)",
+            ),
+        ],
+        first_phase="sum(chunk_scores())",
+        second_phase=SecondPhaseRanking(
+            expression="sum(chunk_scores()) * 100",  # Scale for better scoring
+            rerank_count=100
+        ),
+        match_features=[
+            "my_distance_scores", 
+            "my_text_scores",
+            "normalized_semantic",
+            "normalized_lexical",
+            "chunk_scores",
+            "best_chunks",
+        ],
+        summary_features=["best_chunks"]
+    )
+    return rank_profile
 class VespaStreamingLayeredRetriever(BaseRetriever):
     """
     LangChain retriever using Vespa's layered ranking.
@@ -342,6 +574,12 @@ async def lifespan(app: FastAPI):
         
         schema.add_rank_profile(create_rank_profile())
         schema.add_rank_profile(create_layered_rank_profile())
+
+        schema.add_rank_profile(create_layered_with_second_phase())
+        schema.add_rank_profile(create_layered_with_diversity())
+        schema.add_rank_profile(create_layered_with_maxsim())
+        schema.add_rank_profile(create_layered_with_normalized_fusion())
+
         package = ApplicationPackage(
             name="langchainstreaming",
             schema=[schema],
@@ -522,6 +760,79 @@ async def query_chain_endpoint(
     chain = create_rag_chain(retriever)
     result = chain.invoke(q)
     return {"result": result}
+
+
+@app.get("/query-layered-retriever-chain-second-phase")
+async def query_chain_endpoint_second_phase(
+    q: str = Query(..., alias="query", description="Search query text"),
+    min_score: float = Query(0.0, alias="min_score", description="Minimum chunk score threshold (0.0-1.0)")
+):
+    retriever = VespaStreamingLayeredRetriever(
+        app=vespa_app, 
+        user="jo-bergum",
+        min_chunk_score=min_score
+    )
+    chain = create_rag_chain(retriever)
+    result = chain.invoke(q)
+    return {"result": result}
+
+@app.get("/query-layered-retriever-chain-diversity")
+async def query_chain_endpoint_diversity(
+    q: str = Query(..., alias="query", description="Search query text"),
+    min_score: float = Query(0.0, alias="min_score", description="Minimum chunk score threshold (0.0-1.0)")
+):
+    retriever = VespaStreamingLayeredRetriever(
+        app=vespa_app, 
+        user="jo-bergum",
+        min_chunk_score=min_score
+    )
+    chain = create_rag_chain(retriever)
+    result = chain.invoke(q)
+    return {"result": result}
+
+@app.get("/query-layered-retriever-chain-maxsim")
+async def query_chain_endpoint_maxsim(
+    q: str = Query(..., alias="query", description="Search query text"),
+    min_score: float = Query(0.0, alias="min_score", description="Minimum chunk score threshold (0.0-1.0)")
+):
+    retriever = VespaStreamingLayeredRetriever(
+        app=vespa_app, 
+        user="jo-bergum",
+        min_chunk_score=min_score
+    )
+    chain = create_rag_chain(retriever)
+    result = chain.invoke(q)
+    return {"result": result}
+
+@app.get("/query-layered-retriever-chain-normalized-fusion")
+async def query_chain_endpoint_normalized_fusion(
+    q: str = Query(..., alias="query", description="Search query text"),
+    min_score: float = Query(0.0, alias="min_score", description="Minimum chunk score threshold (0.0-1.0)")
+):
+    retriever = VespaStreamingLayeredRetriever(
+        app=vespa_app, 
+        user="jo-bergum",
+        min_chunk_score=min_score
+    )
+    chain = create_rag_chain(retriever)
+    result = chain.invoke(q)
+    return {"result": result}
+
+
+@app.get("/query-layered-retriever-chain-global-phase")
+async def query_chain_endpoint_global_phase(
+    q: str = Query(..., alias="query", description="Search query text"),
+    min_score: float = Query(0.0, alias="min_score", description="Minimum chunk score threshold (0.0-1.0)")
+):
+    retriever = VespaStreamingLayeredRetriever(
+        app=vespa_app, 
+        user="jo-bergum",
+        min_chunk_score=min_score
+    )
+    chain = create_rag_chain(retriever)
+    result = chain.invoke(q)
+    return {"result": result}
+
 
 if __name__ == "__main__":
     import uvicorn
