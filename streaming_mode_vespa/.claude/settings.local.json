@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Read(//var/run/**)"
-    ],
-    "deny": [],
-    "ask": []
-  }
-}
